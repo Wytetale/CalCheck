@@ -544,6 +544,7 @@ STDMETHODIMP GetDelegates(LPMDB lpMDB)
 					}
 				}
 
+
 				MAPIFreeBuffer(lpPVDelegates);
 				MAPIFreeBuffer(lpDelegateFlags);
 				MAPIFreeBuffer(lpFBMonths);
@@ -558,8 +559,11 @@ STDMETHODIMP GetDelegates(LPMDB lpMDB)
 					lpFreeBusy->Release();
 				}
 
-				delete lpBinVal;
-				lpBinVal = NULL;
+				/*if (lpBinVal && SUCCEEDED(hRes))
+				{
+					delete (LPBYTE)lpBinVal;
+					lpBinVal = NULL;
+				}*/
 			}
 			if (!bFreeBusyMsg)
 			{
@@ -587,8 +591,11 @@ STDMETHODIMP GetDelegates(LPMDB lpMDB)
 		lpRoot->Release();
 	}
 
-	delete lpBinTemp;
-	lpBinTemp = NULL;
+	/*if (lpBinTemp && SUCCEEDED(hRes))
+	{
+		delete (LPBYTE)lpBinTemp;
+		lpBinTemp = NULL;
+	}*/
 	
 	return hRes;
 }

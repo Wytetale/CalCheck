@@ -23,11 +23,9 @@
 
 HRESULT LoadMAPIVer(ULONG ulMAPIVer);
 HRESULT FindAndLoadMAPI(ULONG *ulVer);
-HRESULT LoopMailboxes(LPMAPISESSION lpMAPISession);
 HRESULT ProcessMailbox(LPTSTR szDN, LPMDB lpMDB, LPMAPISESSION lpMAPISession);
 HRESULT GetProxyAddrs(LPTSTR szDN, LPMAPISESSION lpMAPISession);
 BOOL ReadConfigFile();
-BOOL ReadMBXListFile(LPSTR lpszFileName);
 VOID SelectTest(CString strTest);
 
 MYOPTIONS ProgOpts;
@@ -56,15 +54,12 @@ void DisplayUsage()
 	DebugPrint(DBGHelp,_T("Usage:\n"));
 	DebugPrint(DBGHelp,_T("   You can edit the CalCheck.cfg file to turn specific tests on or off.\n"));
 	DebugPrint(DBGHelp,_T("\n"));
-	DebugPrint(DBGHelp,_T("   CalCheck [-P <profilename>] [-L <path\\file>] [-M <LegacyExchangeDN>] [-N <Display Name>] [-O <path>] [-C <Version>] [-A] [-F] [-R] [-V]\n"));
+	DebugPrint(DBGHelp,_T("   CalCheck [-P <profilename>] [-O <path>] [-C <Version>] [-A] [-F] [-R] [-V]\n"));
 	DebugPrint(DBGHelp,_T("   CalCheck -?\n"));
 	DebugPrint(DBGHelp,_T("\n"));
 	DebugPrint(DBGHelp,_T("   -P   <Profile name> (if absent, will prompt for profile)\n"));
-	DebugPrint(DBGHelp,_T("   -L   <List File> (file including Name and LegDN) of mailbox(es) to check\n"));
-	DebugPrint(DBGHelp,_T("   -M   <Mailbox DN> Used with -N (if specified, only process the mailbox specified.)\n"));
-	DebugPrint(DBGHelp,_T("   -N   <DisplayName> Used with -M (if specified, only process the mailbox specified)\n"));
 	DebugPrint(DBGHelp,_T("   -O   <Output Path> (path to place output files - default is the current directory)\n"));
-	DebugPrint(DBGHelp,_T("   -C   <Version> Click To Run scenario with Office 2013 - load a specific MAPI version\n"));
+	DebugPrint(DBGHelp,_T("   -C   <Version> Click To Run scenario with Office 2013 / 2016 - load a specific MAPI version\n"));
 	DebugPrint(DBGHelp,_T("   -A   All calendar items output to CALITEMS.CSV\n"));
 	DebugPrint(DBGHelp,_T("   -F   Create CalCheck Folder and move flagged error items there\n"));
 	DebugPrint(DBGHelp,_T("   -R   Put a Report message in the Inbox with the CalCheck.csv file\n"));
@@ -84,22 +79,12 @@ void DisplayUsage()
 	DebugPrint(DBGHelp,_T("   Process just the mailbox in MyProfile:\n"));
 	DebugPrint(DBGHelp,_T("      CalCheck -P MyProfile\n"));
 	DebugPrint(DBGHelp,_T("\n"));
-	DebugPrint(DBGHelp,_T("   Process List of mailboxes in \"C:\\Directory\\List.txt\":\n"));
-	DebugPrint(DBGHelp,_T("      CalCheck -L \"C:\\Directory\\List.txt\" \n"));
-	DebugPrint(DBGHelp,_T("      \"List.txt\" needs to be in the format of Get-Mailbox | fl output that includes\n"));
-	DebugPrint(DBGHelp,_T("      the LegacyExchangeDN and Name for each mailbox, like: \n"));
-	DebugPrint(DBGHelp,_T("         Name             : Display Name\n"));
-	DebugPrint(DBGHelp,_T("         LegacyExchangeDN : /o=ORG/ou=AdminGroup/cn=Recipients/cn=mailbox\n"));
-	DebugPrint(DBGHelp,_T("\n"));
-	DebugPrint(DBGHelp,_T("   Process a mailbox this user has full rights to:\n"));
-	DebugPrint(DBGHelp,_T("      CalCheck -M <LegacyExchangeDN of the mailbox> -N <Display Name of the mailbox>\n"));
-	DebugPrint(DBGHelp,_T("\n"));
 	DebugPrint(DBGHelp,_T("   Process a mailbox and move error items to the CalCheck folder in the mailbox,\n"));
 	DebugPrint(DBGHelp,_T("   and place a report message in the Inbox:\n"));
 	DebugPrint(DBGHelp,_T("      CalCheck -F -R\n"));
 	DebugPrint(DBGHelp,_T("\n"));
 	DebugPrint(DBGHelp,_T("   Process a mailbox based on a specific profile and version of MAPI for Click To Run scenario:\n"));
-	DebugPrint(DBGHelp,_T("      CalCheck -C <Outlook version - like 2007, 2010, 2013> -P MyProfile\n"));
+	DebugPrint(DBGHelp,_T("      CalCheck -C <Outlook version - like 2010, 2013, etc> -P MyProfile\n"));
 	DebugPrint(DBGHelp,_T("\n"));
 	DebugPrint(DBGHelp,_T("   Print this message\n"));
 	DebugPrint(DBGHelp,_T("      CalCheck -?\n"));
@@ -183,14 +168,6 @@ BOOL ParseArgs(int argc, char * argv[], MYOPTIONS * pRunOpts)
 				case 'r':
 					g_bReport = true;
 					break;
-				case 'l':
-					if (i+1 < argc)
-					{
-						pRunOpts->lpszFileName = argv[i+1];
-						i++;
-					}
-					else return false;
-					break;
 				case 'p':
 					if (i+1 <= argc)
 					{
@@ -203,22 +180,6 @@ BOOL ParseArgs(int argc, char * argv[], MYOPTIONS * pRunOpts)
 						{
 							pRunOpts->lpszProfileName = argv[i+1];
 						}
-						i++;
-					}
-					else return false;
-					break;
-				case 'm':
-					if (i+1 < argc)
-					{
-						pRunOpts->lpszMailboxDN = argv[i+1];
-						i++;
-					}
-					else return false;
-					break;
-				case 'n':
-					if (i+1 < argc)
-					{
-						pRunOpts->lpszDisplayName = argv[i+1];
 						i++;
 					}
 					else return false;
@@ -294,39 +255,11 @@ void main(int argc, char* argv[])
 		return;
 	}
 
-	if (ProgOpts.lpszMailboxDN)
-	{
-		if (!ProgOpts.lpszDisplayName)
-		{
-			DebugPrint(DBGError,_T("You must use the -M and -N switches together.\n"));
-			DebugPrint(DBGGeneric,_T("\n"));
-			DisplayUsage();
-			return;
-		}
-	}
-
-	if (ProgOpts.lpszDisplayName)
-	{
-		if (!ProgOpts.lpszMailboxDN)
-		{
-			DebugPrint(DBGError,_T("You must use the -M and -N switches together.\n"));
-			DebugPrint(DBGGeneric,_T("\n"));
-			DisplayUsage();
-			return;
-		}
-	}
-
-#ifdef _UNICODE
-	if (ProgOpts.lpszFileName) AnsiToUnicode(ProgOpts.lpszFileName,&lpszFileName);
+#ifdef _UNICODE	
 	if (ProgOpts.lpszProfileName) AnsiToUnicode(ProgOpts.lpszProfileName,&lpszProfileName);
-	if (ProgOpts.lpszMailboxDN) AnsiToUnicode(ProgOpts.lpszMailboxDN,&lpszMailboxDN);
-	if (ProgOpts.lpszDisplayName) AnsiToUnicode(ProgOpts.lpszDisplayName,&lpszDisplayName);
 	if (ProgOpts.lpszMAPIVer) AnsiToUnicode(ProgOpts.lpszMAPIVer,&lpszMAPIVer);
 #else
-	lpszFileName = ProgOpts.lpszFileName;
 	lpszProfileName = ProgOpts.lpszProfileName;
-	lpszMailboxDN = ProgOpts.lpszMailboxDN;
-	lpszDisplayName = ProgOpts.lpszDisplayName;
 	lpszMAPIVer = ProgOpts.lpszMAPIVer;
 #endif
 
@@ -366,23 +299,12 @@ void main(int argc, char* argv[])
 
 		// Now load the specific MAPI version
 		hRes = LoadMAPIVer(ulMAPIVer);
-		/*if (FAILED(hRes))
-		{
-			DebugPrint(DBGError,_T("Failed to load the correct version of MAPI. Check the install. Error: 0x%08X\n"), hRes);
-			goto Exit;
-		}*/
 
 	}// ProgOpts.lpszMAPIVer
-	else
+	/*else
 	{
 		hRes = FindAndLoadMAPI(&ulMAPIVer); // find the installed build of Outlook/MAPI and load it
-		/*if (FAILED(hRes))
-		{
-			DebugPrint(DBGError,_T("Failed to load the correct version of MAPI. Check the install. Error: 0x%08X\n"), hRes);
-			goto Exit;
-		}*/
-	}
-
+	}*/
 
 	// Create Output Directory if specified
 	if (g_bOutput)
@@ -430,7 +352,6 @@ void main(int argc, char* argv[])
 		goto Exit;
 	}
 
-
 	LPMAPISESSION lpMAPISession = NULL;
 
 	WC_H(MAPIInitialize(NULL));
@@ -438,6 +359,7 @@ void main(int argc, char* argv[])
 	hRes = MAPILogonEx(0, (LPTSTR) ProgOpts.lpszProfileName, NULL,
 		MAPI_LOGON_UI | MAPI_NEW_SESSION |  MAPI_EXPLICIT_PROFILE,
 		&lpMAPISession);
+
 	if (FAILED(hRes))
 	{
 		if (MAPI_E_USER_CANCEL == hRes)
@@ -509,80 +431,15 @@ void main(int argc, char* argv[])
 			}
 		}
 
-		if (ProgOpts.lpszFileName)
+		if (lpMDB)
 		{
-			g_bMultiMode = true;
-			BOOL bSuccess = true;
-			bSuccess = ReadMBXListFile(ProgOpts.lpszFileName);			
-			if(bSuccess)
-			{
-				WC_H(LoopMailboxes(lpMAPISession));
-			}
-			else
-			{
-				DebugPrint(DBGError,_T("Failed to read Mailbox List file. Please check the file, ensure you entered the correct path and name, and try again.\n"));
-				DebugPrint(DBGGeneric,_T("\n"));
-				DisplayUsage();
-				goto Exit;
-			}
-		}
-		else if (ProgOpts.lpszMailboxDN)
-		{
-			g_bOtherMBXMode = true;
-			LPSERVICEADMIN	pSvcAdmin = NULL;
-			LPPROFSECT		pGlobalProfSect = NULL;
-			LPSPropValue	lpServerName	= NULL;
-			WCHAR			*szUnicodeMsgStoreDN = NULL;
-
-			g_MBXLegDN = (CString)lpszMailboxDN;
-			g_MBXDisplayName = (CString)lpszDisplayName;
-
-			// Do this single mailbox
-			WC_H(OpenMessageStoreGUID(lpMAPISession, pbExchangeProviderPrimaryUserGuid, &lpPrimaryMDB));
-			if (lpPrimaryMDB)
-				WC_H(lpMAPISession->AdminServices(0,&pSvcAdmin));
-			if (pSvcAdmin)
-				WC_H(pSvcAdmin->OpenProfileSection((LPMAPIUID)pbGlobalProfileSectionGuid, NULL, 0,	&pGlobalProfSect));
-			if (pGlobalProfSect)
-					WC_H(HrGetOneProp(pGlobalProfSect,PR_PROFILE_HOME_SERVER,&lpServerName));
-			if (lpPrimaryMDB && lpServerName && CheckStringProp(lpServerName,PT_STRING8))
-			{				
-				AnsiToUnicode(lpServerName->Value.lpszA, &szUnicodeMsgStoreDN);
-
-				OpenOtherUsersMailbox(lpMAPISession,
-									lpPrimaryMDB,
-									szUnicodeMsgStoreDN,
-									lpszMailboxDN,
-									false, // don't need admin priv - don't assert it
-									&lpMDB);
-
-				if (lpMDB)
-				{
-					WC_H(ProcessMailbox(lpszMailboxDN, lpMDB, lpMAPISession));
-				}
-				else
-				{
-					DebugPrint(DBGError,_T("Could not connect. Ensure you are connecting Outlook via MAPI to an Exchange server.\n"));
-					WriteLogFile(_T("ERROR: Could not connect. Ensure you are connecting Outlook via MAPI to an Exchange server."), 0);
-				}
-			}	
-			
-			MAPIFreeBuffer(lpServerName);
-			if (pGlobalProfSect) pGlobalProfSect->Release();
-			if (pSvcAdmin) pSvcAdmin->Release();
+			// Process the primary Exchange mailbox in the profile
+			WC_H(ProcessMailbox(lpMailboxName->Value.LPSZ, lpMDB, lpMAPISession));
 		}
 		else
 		{
-			if(lpMDB)
-			{
-				// Just do primary Exchange mailbox in the profile
-				WC_H(ProcessMailbox(lpMailboxName->Value.LPSZ, lpMDB, lpMAPISession));
-			}
-			else
-			{
-				DebugPrint(DBGError,_T("Could not connect. Ensure you are connecting Outlook via MAPI to an Exchange server.\n"));
-				WriteLogFile(_T("ERROR: Could not connect. Ensure you are connecting Outlook via MAPI to an Exchange server."), 0);
-			}
+			DebugPrint(DBGError, _T("Could not connect. Ensure you are connecting Outlook via MAPI to an Exchange server.\n"));
+			WriteLogFile(_T("ERROR: Could not connect. Ensure you are connecting Outlook via MAPI to an Exchange server."), 0);
 		}
 
 		MAPIFreeBuffer(lpMailboxName);
@@ -616,23 +473,9 @@ void main(int argc, char* argv[])
 		g_szAppPath = g_szOutputPath;
 	}
 
-	// if the File option was specified there could be many logs
-	if (ProgOpts.lpszFileName)
-	{
-		//remove extra CalCheck logs if it all goes well - otherwise there may be an error to look at in the log
-		if(g_bClearLogs)
-			RemoveLogFiles();
-		
-		DebugPrint(DBGGeneric,_T("\n"));
-		DebugPrint(DBGGeneric,_T("Please check the resulting files in " + g_szAppPath + " for more information.\n"));
-		if(g_bFolder) DebugPrint(DBGGeneric,_T("Flagged error items were placed in the CalCheck folder in Outlook for each user.\n"));
-	}
-	else
-	{
-		DebugPrint(DBGGeneric,_T("\n"));
-		DebugPrint(DBGGeneric,_T("Please check the resulting files in " + g_szAppPath + " for more information.\n"));
-		if(g_bFolder) DebugPrint(DBGGeneric,_T("Flagged error items were placed in the CalCheck folder in Outlook.\n"));
-	}
+	DebugPrint(DBGGeneric, _T("\n"));
+	DebugPrint(DBGGeneric, _T("Please check the resulting files in " + g_szAppPath + " for more information.\n"));
+	if (g_bFolder) DebugPrint(DBGGeneric, _T("Flagged error items were placed in the CalCheck folder in Outlook.\n"));
 
 Exit:
 		
@@ -648,230 +491,7 @@ Exit:
 	return;
 }
 
-// Loop through the mailboxes listed in file passed in by user
-HRESULT LoopMailboxes(LPMAPISESSION lpMAPISession)
-{
-	DebugPrint(DBGVerbose,_T("\n"));
-	DebugPrint(DBGTime,_T("Begin LoopMailboxes.\n"));
-	DebugPrint(DBGVerbose,_T("\n"));
-	
-	LPSERVICEADMIN	pSvcAdmin = NULL;
-	LPPROFSECT		pGlobalProfSect = NULL;
-	LPSPropValue	lpServerName	= NULL;
-	HRESULT			hRes = S_OK;
-	CString			strHR = _T("");	
-	CString			strProbItemsSvr, strErrorsSvr, strWarningsSvr;
-	CStringList		rgstrProbMBXs;
-	POSITION		posProb;
-	POSITION		posList;
-	LPMDB			lpPrimaryMDB	= NULL;
-	LPMDB			lpUserMDB		= NULL;
-	LPTSTR			lpszServerName  = _T("");
-	LPTSTR			lpszMailboxDN   = _T("");
-	LPTSTR			lpszDisplayName = _T("");
-	WCHAR			*szUnicodeMsgStoreName = NULL;
-	SYSTEMTIME		stTime;
-	CString			strLocalTime;
-
-	hRes = CreateServerLogFile();
-	if (!hRes == S_OK)
-	{			
-		DebugPrint(DBGError,_T("Failed creating required output file CalCheckMaster.log. Please close any opened files and try again. Error: 0x%08X\n"), hRes);
-		goto Exit;
-	}
-
-	DebugPrint(DBGGeneric,_T("Running multi-mailbox mode. \n"));
-	WriteSvrLogFile(_T("Running multi-mailbox mode.\r\n"));
-
-	// Need to get the User's Exchange Server Name (the user who is running this)
-	WC_H(OpenMessageStoreGUID(lpMAPISession, pbExchangeProviderPrimaryUserGuid, &lpPrimaryMDB));
-	if (lpPrimaryMDB)
-		WC_H(lpMAPISession->AdminServices(0,&pSvcAdmin));
-	if (pSvcAdmin)
-		WC_H(pSvcAdmin->OpenProfileSection((LPMAPIUID)pbGlobalProfileSectionGuid, NULL, 0,	&pGlobalProfSect));
-	if (pGlobalProfSect)
-		WC_H(HrGetOneProp(pGlobalProfSect,PR_PROFILE_HOME_SERVER,&lpServerName));
-	if (lpPrimaryMDB && lpServerName && CheckStringProp(lpServerName,PT_STRING8))
-	{
-		AnsiToUnicode(lpServerName->Value.lpszA,&szUnicodeMsgStoreName);
-		lpszServerName = szUnicodeMsgStoreName;
-	}
-
-	// Need to get each mailbox from the in-memory CStringList and try to process it.
-	if (!MBXInfoList.IsEmpty())
-	{
-		CString strReadLine = _T("");
-		CString strDispName = _T("");
-		CString strMailboxDN = _T("");
-		int iStrLen = 0;
-		int iColon = 0;
-		int iCopy = 0;
-		int iElements = 0;
-		int iChar = 0;
-		int iMBXInfoNeeded = 2;
-
-		for (posList = MBXInfoList.GetHeadPosition(); posList != NULL; )
-		{
-			strReadLine = MBXInfoList.GetNext(posList);
-
-			if (strReadLine.Find(_T("name")) != -1)
-			{
-				iChar = strReadLine.Find('n', 0);
-				if (iChar == 0)
-				{
-					iStrLen = strReadLine.GetLength();
-					iColon = strReadLine.Find(':');
-					iCopy = ((iStrLen - iColon)-2);
-					if (lpszDisplayName == _T(""))
-					{
-						strDispName = strReadLine.Right(iCopy);
-						lpszDisplayName = strDispName.GetBuffer(0);
-						iElements++;
-					}
-					else
-					{
-						DebugPrint(DBGGeneric,_T("Mailbox List File Format Error.\n"));
-						return 1;
-					}
-				}
-			}
-
-			if (strReadLine.Find(_T("legacyexchangedn")) != -1)
-			{
-				iChar = strReadLine.Find('l', 0);
-				if (iChar == 0)
-				{
-					iStrLen = strReadLine.GetLength();
-					iColon = strReadLine.Find(':');
-					iCopy = ((iStrLen - iColon)-2);
-					if (lpszMailboxDN == _T(""))
-					{
-						strMailboxDN = strReadLine.Right(iCopy);
-						lpszMailboxDN = strMailboxDN.GetBuffer(0);
-						iElements++;
-					}
-					else
-					{
-						DebugPrint(DBGGeneric,_T("Mailbox List File Format Error.\n"));
-						return 1;
-					}
-				}
-			}
-			if (iElements == iMBXInfoNeeded) // we need two elements populated above before trying to process
-			{
-				WriteLogFile(_T("Opening mailbox: " + (CString)lpszDisplayName), 1);
-				WriteLogFile(_T("DN: " + (CString)lpszMailboxDN + "/r/n"), 1);
-				
-				// We should have the display name, legDN, and server name now, so process this mailbox
-				WC_H(OpenOtherUsersMailbox(lpMAPISession,
-											lpPrimaryMDB,
-											lpszServerName,
-											lpszMailboxDN,
-											false, // don't need admin priv - don't assert it
-											&lpUserMDB));
-
-				g_MBXDisplayName = (CString)lpszDisplayName;
-				g_MBXLegDN = (CString)lpszMailboxDN;
-
-				if (lpUserMDB)
-				{
-					WC_H(ProcessMailbox(lpszMailboxDN,lpUserMDB,lpMAPISession));
-					ULONG lpulFlags = LOGOFF_NO_WAIT;
-					WC_H(lpUserMDB->StoreLogoff(&lpulFlags));
-					lpUserMDB->Release();
-					lpUserMDB = NULL;
-
-					if(g_bFoundProb)
-					{
-						//if probs were found, then set the global back to false for the next mailbox
-						//and add this one to the list
-						g_bFoundProb = false;
-						rgstrProbMBXs.AddHead((CString)lpszMailboxDN);
-					}
-				}
-				else
-				{
-					CString strUser;
-
-					DebugPrint(DBGGeneric,_T("\n"));
-					DebugPrint(DBGError,_T("Opening a mailbox returned error 0x%08X\n"),hRes);
-					DebugPrint(DBGError,_T("Display Name: %s\n"), lpszDisplayName);
-					DebugPrint(DBGError,_T("LegacyExchangeDN: %s\n"), lpszMailboxDN);
-					DebugPrint(DBGError,_T("Check the mailbox name and DN, and that the store is mounted and you have permissions.\n"));
-					DebugPrint(DBGError,_T("Continuing...\n"));
-					DebugPrint(DBGError,_T("==============\n"));
-
-					strHR.Format(_T("%08X"), hRes);
-					WriteLogFile(_T("Failed to open this mailbox. Error: ") + strHR, 1);
-					WriteLogFile(_T("Display Name: ") + (CString)lpszDisplayName, 1);
-					WriteLogFile(_T("LegacyExchangeDN: ") + (CString)lpszMailboxDN, 1);
-					WriteLogFile(_T("Check the mailbox name and DN, and that the store is mounted and you have permissions.\r\n"), 1);
-
-					// If an error opening a mailbox, we won't process, but we still need to have a separate log file
-					strUser += _T("_");
-					strUser += GetDNUser(lpszMailboxDN);
-
-					AppendFileNames((LPCTSTR)strUser);
-
-					CreateLogFiles();
-				}
-
-				iElements = 0;
-				lpszDisplayName = _T("");
-				lpszMailboxDN = _T("");
-			}
-
-		} // for Entire list of mailboxes to go through
-	}
-	else
-	{
-		// something bad happened and there's no mailbox info list to go through.
-		WriteLogFile(_T("No mailbox information list - check to ensure the input list file is correct and try again."), 1);
-	}
-	
-	GetLocalTime(&stTime);
-	strLocalTime.Format(_T("%02d/%02d/%d %02d:%02d:%02d%s"), 
-							stTime.wMonth, 
-							stTime.wDay, 
-							stTime.wYear, 
-							(stTime.wHour <= 12)?stTime.wHour:stTime.wHour-12,  // adjust to non-military time
-							stTime.wMinute, 
-							stTime.wSecond,
-							(stTime.wHour <= 12)?_T("AM"):_T("PM"));
-
-	WriteSvrLogFile(_T("Finish: ") + strLocalTime + ("\r\n"));
-
-	strProbItemsSvr.Format(_T("%d"), g_ulProbItemsSvr);
-	strErrorsSvr.Format(_T("%d"), g_ulErrorsSvr);
-	strWarningsSvr.Format(_T("%d"), g_ulWarningsSvr);
-
-	// Do some overall reporting...
-	WriteSvrLogFile(_T("CalCheck Multi Mailbox Mode Results:"));
-	WriteSvrLogFile(_T("Total Problem Items: ") + strProbItemsSvr);
-	WriteSvrLogFile(_T("Total Errors found: ") + strErrorsSvr);
-	WriteSvrLogFile(_T("Total Warnings found: ") + strWarningsSvr + (" \n"));
-
-	if(!rgstrProbMBXs.IsEmpty())
-	{
-		WriteSvrLogFile(_T("Mailboxes reporting problems:"));
-		for(posProb = rgstrProbMBXs.GetHeadPosition(); posProb != NULL; )
-		{
-			WriteSvrLogFile(rgstrProbMBXs.GetNext(posProb));
-		}
-
-	}
-
-	lpPrimaryMDB->Release();
-
-	DebugPrint(DBGVerbose,_T("\n"));
-	DebugPrint(DBGTime,_T("End LoopServer\n"));
-	DebugPrint(DBGVerbose,_T("\n"));
-
-Exit:
-
-	return hRes;
-}
-
+// Start processing of the mailbox...
 HRESULT ProcessMailbox(LPTSTR szDN, LPMDB lpMDB, LPMAPISESSION lpMAPISession)
 {
 	HRESULT				hRes = S_OK;
@@ -1202,141 +822,6 @@ HRESULT GetProxyAddrs(LPTSTR szDN, LPMAPISESSION lpMAPISession)
 	return hRes;
 }
 
-// Read in Text File containing Names and DNs from 
-BOOL ReadMBXListFile(LPSTR	lpszFileName)
-{
-	/* Based on output from Get-Mailbox command where output looks like:
-	Name             : test01
-	LegacyExchangeDN : /o=Reprohouse/ou=Exchange Administrative Group (FYDIBOHF23SPDLT)/cn=Recipients/cn=test01
-	*/
-	CStdioFile MBXFile;
-	CString strMBXFile = _T("");
-	CFileStatus status;
-	CFileException e;
-	CString strReadLine = _T("");
-	CString strWriteLine = _T("");
-	BOOL bReturn = 1;
-
-	strMBXFile = lpszFileName;
-
-	if (strMBXFile.Find(':') == -1) // if no path was given, pre-pend the application path
-	{
-		CString strTemp = g_szAppPath;
-		strTemp += _T("\\") + strMBXFile;
-
-		strMBXFile = strTemp;
-	}
-
-	if(MBXFile.GetStatus(strMBXFile, status))
-	{
-		//open it
-		if(MBXFile.Open((LPCTSTR)strMBXFile, CFile::modeRead | CFile::typeText))
-		{
-			ULONG ulLength = MBXFile.GetLength();
-			ULONG ulLen2 = ulLength / 2;
-			CString strBuffer;					
-					 
-
-			MBXFile.Read(strBuffer.GetBuffer(ulLength), ulLength);
-			LPCWSTR lpszTemp1 = strBuffer.GetBuffer(0);
-			LPCWSTR lpszTemp2 = lpszTemp1;
-			LPBYTE bEdit = (LPBYTE)lpszTemp2;
-
-			BYTE b1 = (BYTE)*lpszTemp1;
-			if(b1 == 0xff) // This is a UNICODE File if it has this in the first byte
-			{
-				// first go to the end of the text and NULL terminate it
-				lpszTemp2 += ulLen2;
-				b1 = (BYTE)*lpszTemp2;
-				if(b1 != 0x00)
-				{
-					bEdit = (LPBYTE)lpszTemp2;
-					*bEdit = 0x00;
-					bEdit += 1;
-					*bEdit = 0x00;
-				}
-				// now set the beginning of the text to the actual beginning of the text
-				for (int i = 0; i < ulLength; i++)
-				{
-					b1 = (BYTE)*lpszTemp1;
-
-					if(b1 == 0xff || b1 == 0xfe || b1 == 0xef || b1 == 0x00 || b1 == 0x0d || b1 == 0x0a)
-					{
-						lpszTemp1 += 1;
-						b1 = (BYTE)*lpszTemp1;
-					}
-					else // should be at the actual unicode text now - set that as the CString
-					{
-						//strBuffer.Empty();
-						//strBuffer.SetString(lpszTemp1, ulLength);
-
-						strBuffer.Empty();
-						strBuffer = lpszTemp1;
-
-						lpszTemp1 = _T("");
-						lpszTemp2 = _T("");
-
-						break;
-					}
-				}
-
-				int iPos1 = 0;
-				int iPos2 = 0;						
-						
-				strBuffer.Replace(_T("\r\n\r\n"), _T("\r\n")); // remove double crlf's... that messes things up below...
-
-				ULONG ulBuf = strBuffer.GetLength();
-
-				while (ulBuf > 0)
-				{
-					iPos1 = strBuffer.Find(_T("\r\n"), iPos1); 
-
-					if(iPos1 != -1)
-					{
-						strReadLine = strBuffer.Left(iPos1);
-						strBuffer = strBuffer.Right(ulBuf-iPos1-2);
-						ulBuf = strBuffer.GetLength();
-						strReadLine.MakeLower();
-						MBXInfoList.AddHead(strReadLine);
-						iPos1 = 0;
-					}
-					else // no crlf should mean we're at the end of the buffer
-					{
-						strReadLine = strBuffer;
-						strReadLine.MakeLower();
-						MBXInfoList.AddHead(strReadLine);
-						ulBuf = 0;
-					}				
-				}
-			}
-			else
-			{
-				// it's an ANSI file and we'll process that
-				MBXFile.SeekToBegin();
-				while(MBXFile.ReadString(strReadLine))
-				{
-					if (strReadLine.Find(':') != -1)
-					{
-						strReadLine.MakeLower();
-						MBXInfoList.AddHead(strReadLine);
-					}
-				}
-			}
-		}
-		else
-		{
-			DebugPrint(DBGGeneric,_T("Could not open file: \"%s\" Check access to the file and directory.\n"), lpszFileName);
-			return false;
-		}
-	}
-	else
-	{
-		DebugPrint(DBGGeneric,_T("Could not find or open the file: \"%s\" \n"), lpszFileName);
-		return false;
-	}
-
-	return true;
-}
 
 CString rgstrTests[51] = {"organizeraddress",
 							"organizername",
@@ -1837,18 +1322,12 @@ HRESULT LoadMAPIVer(ULONG ulMAPIVer)
 		TEXT("{24AAE126-0911-478F-A019-07B875EB9996}"), // Outlook 2007
 		TEXT("{1E77DE88-BCAB-4C37-B9E5-073AF52DFD7A}"), // Outlook 2010
 		TEXT("{E83B4360-C208-4325-9504-0D23003A74A5}"), // Outlook 2013
-		TEXT("{5812C571-53F0-4467-BEFA-0A4F47A9437C}"), // Outlook 2016
     };
     int nOutlookQualifiedComponents = _countof(pszaOutlookQualifiedComponents);
 	int iVer = 0;
     DWORD dwValueBuf = 0;
     UINT ret = 0;
 	BOOL b64 = FALSE;
-
-	if (ulMAPIVer == 16)
-	{
-		iVer = 4;
-	}
 
 	if (ulMAPIVer == 15)
 	{
@@ -1972,7 +1451,6 @@ HRESULT FindAndLoadMAPI(ULONG *ulVer)
 		TEXT("{24AAE126-0911-478F-A019-07B875EB9996}"), // Outlook 2007
 		TEXT("{1E77DE88-BCAB-4C37-B9E5-073AF52DFD7A}"), // Outlook 2010
 		TEXT("{E83B4360-C208-4325-9504-0D23003A74A5}"), // Outlook 2013
-		TEXT("{5812C571-53F0-4467-BEFA-0A4F47A9437C}"), // Outlook 2016
     };
     int iOQC = _countof(pszaOutlookQualifiedComponents);
 	int iVer = 4;
@@ -2043,13 +1521,7 @@ HRESULT FindAndLoadMAPI(ULONG *ulVer)
 		 goto Exit;
 	}
 
-	if (iVer == 4)
-	{
-		*ulVer = 16;
-		DebugPrint(DBGVerbose, _T("Loading 2016 version of MAPI. \n"));
-	}
-
-	else if (iVer == 3)
+	if (iVer == 3)
 	{
 		*ulVer = 15;
 		DebugPrint(DBGVerbose,_T("Loading 2013 version of MAPI. \n"));
