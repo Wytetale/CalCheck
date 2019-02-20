@@ -67,4 +67,7 @@
       <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="CalCheck.exe.manifest" />
+  </ItemGroup>
 </Project>
